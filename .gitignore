@@ -1,0 +1,40 @@
+# 📦 Node
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 🔨 Next.js
+.next/
+out/
+build/
+
+# 💨 Tailwind
+.tailwind/
+
+# 🔐 Environment
+.env
+.env.local
+.env.*.local
+
+# 📁 OS / Editor
+.DS_Store
+.vscode/
+.idea/
+
+# 🛠️ Supabase (si tu utilises supabase CLI)
+.supabase/
+
+# 🔍 Logs
+*.log
+
+# 🧪 Test / Coverage
+coverage/
+*.spec.ts
+*.spec.tsx
+
+# 🧪 Playwright (si utilisé)
+test-results/
+playwright-report/

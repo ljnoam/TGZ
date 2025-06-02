@@ -11,11 +11,11 @@ export async function POST(request: NextRequest) {
     // Le cookie est HTTP-only, accessible seulement par le serveur/middleware
     res.cookies.set("admin_logged_in", "true", {
       path: "/",
-      httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      maxAge: 60 * 60 * 24, // 1 jour
       sameSite: "lax",
+      maxAge: 60 * 60 * 24,
     });
+
     return res;
   }
 

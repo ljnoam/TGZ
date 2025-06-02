@@ -24,7 +24,7 @@ export default function AdminLogin({ onAuthenticated }: AdminLoginProps) {
     setError("");
 
     try {
-      const res = await fetch("/api/login", {
+      const res = await fetch("/api/login_admin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),

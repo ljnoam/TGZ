@@ -37,7 +37,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { checkAdminAuth, logoutAdmin } from "@/lib/admin-auth";
-import AdminLogin from "@/components/admin-login";
+import AdminLogin from "@/app/admin/login/admin-login";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import EventsManagement from "@/components/events-management";

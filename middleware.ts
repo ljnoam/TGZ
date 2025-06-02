@@ -7,11 +7,11 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // 🔐 Protéger /admin et tous ses sous-routes
-  if (pathname.startsWith("/admin")) {
-    const isAdminLoggedIn = request.cookies.get("admin_logged_in")?.value === "true";
+  if (pathname.startsWith("/admin") && !pathname.startsWith("/admin/login")) {
+    const isAdminLoggedIn =
+      request.cookies.get("admin_logged_in")?.value === "true";
     if (!isAdminLoggedIn) {
-      // Redirige vers la page de login
-      return NextResponse.redirect(new URL("/login", request.url));
+      return NextResponse.redirect(new URL("/admin/login", request.url));
     }
   }
 

@@ -1,3 +1,4 @@
+// app/admin/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -37,7 +38,8 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { checkAdminAuth, logoutAdmin } from "@/lib/admin-auth";
-import AdminLogin from "@/app/admin/login/page";
+// On importe la page de login, qui ne prend plus de prop
+import AdminLoginPage from "./login/page";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import EventsManagement from "@/components/events-management";
@@ -75,8 +77,6 @@ export default function AdminPage() {
   });
   const [activeTab, setActiveTab] = useState("tokens");
   const [attestationTab, setAttestationTab] = useState("completed");
-
-  // Filtres pour les attestations
   const [filters, setFilters] = useState({
     search: "",
     dateStart: "",
@@ -86,19 +86,19 @@ export default function AdminPage() {
     eventType: "",
   });
   const [showFilters, setShowFilters] = useState(false);
-
-  // Pour gérer le clic sur la colonne “Facture traitée”
   const [invoiceToggling, setInvoiceToggling] = useState<string | null>(null);
+
+  // Dès le premier rendu, on check si le cookie admin_logged_in existe
+  useEffect(() => {
+    const logged = checkAdminAuth();
+    setIsAuthenticated(logged);
+    setLoading(false);
+  }, []);
 
   const handleLogout = () => {
     logoutAdmin();
     setIsAuthenticated(false);
   };
-
-  useEffect(() => {
-    setIsAuthenticated(checkAdminAuth());
-    setLoading(false);
-  }, []);
 
   /**
    * 1) On charge le nombre total de clients
@@ -107,18 +107,15 @@ export default function AdminPage() {
    */
   const loadStats = async () => {
     try {
-      // 1) Total clients
       const { count: clientsCount } = await supabase
         .from("clients")
         .select("*", { count: "exact", head: true });
 
-      // 2) Attestations complétées (pdf_generated = true)
       const { count: completedCount } = await supabase
         .from("attestations")
         .select("*", { count: "exact", head: true })
         .eq("pdf_generated", true);
 
-      // 3) Attestations en attente (pdf_generated = false)
       const { count: pendingCount } = await supabase
         .from("attestations")
         .select("*", { count: "exact", head: true })
@@ -172,12 +169,6 @@ export default function AdminPage() {
     });
   };
 
-  /**
-   * Filtrage en fonction de l’onglet “completed” ou “pending” :
-   *  - complétées  = pdf_generated = true
-   *  - en attente   = pdf_generated = false
-   * Ensuite, on applique les autres filtres (recherche, date, montant, eventType).
-   */
   const filteredAttestations = attestations.filter((attestation) => {
     if (attestationTab === "completed" && !attestation.pdf_generated) {
       return false;
@@ -185,8 +176,6 @@ export default function AdminPage() {
     if (attestationTab === "pending" && attestation.pdf_generated) {
       return false;
     }
-
-    // Filtre “recherche par nom”
     if (
       filters.search &&
       !`${attestation.prestataire_nom} ${attestation.prestataire_prenom}`
@@ -195,8 +184,6 @@ export default function AdminPage() {
     ) {
       return false;
     }
-
-    // Filtre date de début
     if (
       filters.dateStart &&
       new Date(attestation.prestation_date_debut) < new Date(filters.dateStart)
@@ -209,8 +196,6 @@ export default function AdminPage() {
     ) {
       return false;
     }
-
-    // Filtre montant min/max
     if (
       filters.minAmount &&
       attestation.prestation_montant < Number(filters.minAmount)
@@ -223,8 +208,6 @@ export default function AdminPage() {
     ) {
       return false;
     }
-
-    // Filtre “eventType” au sein de description
     if (
       filters.eventType &&
       !attestation.prestation_description
@@ -233,14 +216,13 @@ export default function AdminPage() {
     ) {
       return false;
     }
-
     return true;
   });
 
   const formatDate = (dateString: string) => {
     try {
       return format(new Date(dateString), "dd MMMM yyyy", { locale: fr });
-    } catch (e) {
+    } catch {
       return dateString;
     }
   };
@@ -252,9 +234,6 @@ export default function AdminPage() {
     return "Autre";
   };
 
-  /**
-   * Bascule le champ `invoice_processed` pour une attestation donnée.
-   */
   const toggleInvoiceProcessed = async (attId: string, newValue: boolean) => {
     setInvoiceToggling(attId);
     try {
@@ -282,10 +261,12 @@ export default function AdminPage() {
     );
   }
 
+  // Si l’admin n’est pas authentifié, on affiche la page de login
   if (!isAuthenticated) {
-    return <AdminLogin onAuthenticated={() => setIsAuthenticated(true)} />;
+    return <AdminLoginPage />;
   }
 
+  // Sinon, on affiche le dashboard complet
   return (
     <div className="min-h-screen bg-slate-900 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -392,7 +373,11 @@ export default function AdminPage() {
 
           {/* Contenu onglet Attestations */}
           <TabsContent value="attestations">
-            <Tabs value={attestationTab} onValueChange={setAttestationTab} className="mb-6">
+            <Tabs
+              value={attestationTab}
+              onValueChange={setAttestationTab}
+              className="mb-6"
+            >
               <TabsList className="bg-slate-800 border-slate-700">
                 <TabsTrigger
                   value="completed"
@@ -525,7 +510,6 @@ export default function AdminPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {/* Wrapper pour scroll horizontal sur mobile */}
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
@@ -589,13 +573,16 @@ export default function AdminPage() {
                             <Badge
                               variant="outline"
                               className={
-                                getEventType(attestation.prestation_description) ===
-                                "Roland-Garros"
+                                getEventType(
+                                  attestation.prestation_description
+                                ) === "Roland-Garros"
                                   ? "bg-orange-900/20 text-orange-400 border-orange-800"
                                   : "border-slate-600 text-slate-300"
                               }
                             >
-                              {getEventType(attestation.prestation_description)}
+                              {getEventType(
+                                attestation.prestation_description
+                              )}
                             </Badge>
                           </TableCell>
 
@@ -623,7 +610,10 @@ export default function AdminPage() {
                               <Badge
                                 className="bg-green-900/20 text-green-400 border-green-800 cursor-pointer"
                                 onClick={() =>
-                                  toggleInvoiceProcessed(attestation.id, false)
+                                  toggleInvoiceProcessed(
+                                    attestation.id,
+                                    false
+                                  )
                                 }
                               >
                                 ✓ Oui
@@ -633,7 +623,10 @@ export default function AdminPage() {
                                 variant="outline"
                                 className="border-slate-600 text-slate-300 cursor-pointer"
                                 onClick={() =>
-                                  toggleInvoiceProcessed(attestation.id, true)
+                                  toggleInvoiceProcessed(
+                                    attestation.id,
+                                    true
+                                  )
                                 }
                               >
                                 Non

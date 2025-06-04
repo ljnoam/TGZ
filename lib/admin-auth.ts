@@ -1,8 +1,8 @@
 // lib/admin-auth.ts
 
 /**
- * Vérifie si l’administrateur est authentifié
- * en regardant le cookie HTTP-only "admin_logged_in".
+ * Vérifie si l’admin est connecté en regardant le cookie HTTP-only “admin_logged_in”.
+ * (Cette fonction ne fonctionne que côté client.)
  */
 export function checkAdminAuth(): boolean {
   if (typeof document === "undefined") return false;
@@ -10,6 +10,6 @@ export function checkAdminAuth(): boolean {
 }
 
 export function logoutAdmin(): void {
-  // Expire le cookie HTTP-only côté client (accessible uniquement en JS pour déclencher redirect)
+  // Efface le cookie côté client (pour forcer un rafraîchissement et une redirection éventuelle)
   document.cookie = "admin_logged_in=; path=/; max-age=0; SameSite=Lax";
 }

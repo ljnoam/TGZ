@@ -1,19 +1,23 @@
-// components/admin-login.tsx
+// app/admin/login/page.tsx
 "use client";
 
-import React, { useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Shield, Loader2 } from "lucide-react";
 
-interface AdminLoginProps {
-  onAuthenticated: () => void;
-}
-
-export default function AdminLogin({ onAuthenticated }: AdminLoginProps) {
+export default function AdminLoginPage() {
+  const router = useRouter();
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -29,10 +33,12 @@ export default function AdminLogin({ onAuthenticated }: AdminLoginProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ password }),
       });
-
       const result = await res.json();
+
       if (res.ok && result.success) {
-        onAuthenticated();
+        // En cas de succès, le serveur a posé le cookie HTTP-only.
+        // On redirige l’admin vers le dashboard principal.
+        router.push("/admin");
       } else {
         setError("Mot de passe incorrect");
       }
@@ -75,7 +81,11 @@ export default function AdminLogin({ onAuthenticated }: AdminLoginProps) {
               </Alert>
             )}
 
-            <Button type="submit" className="w-full" disabled={loading || !password}>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={loading || !password}
+            >
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

@@ -57,6 +57,38 @@ interface ActiveToken {
   expires_at?: string;
 }
 
+// ── FONCTION DE NETTOYAGE DES BROUILLONS “DRAFT” OBSOLESENTS ───────────────────
+async function cleanupDrafts() {
+  const now = new Date().toISOString();
+  // 1) Récupère tous les tokens encore valables (used = false, expires_at > now)
+  const { data: validTokens, error: tokensError } = await supabase
+    .from("tokens")
+    .select("id")
+    .eq("used", false)
+    .gt("expires_at", now);
+
+  if (tokensError) {
+    console.error("Erreur récupération tokens valides :", tokensError);
+    return;
+  }
+
+  const validIds = (validTokens || []).map((t) => t.id);
+
+  // 2) Supprimer toutes les attestations “draft” dont token_id n’est pas dans validIds
+  let query = supabase.from("attestations").delete().eq("status", "draft");
+
+  if (validIds.length > 0) {
+    // Supabase attend une string "(id1,id2,...)"
+    const idsList = `(${validIds.join(",")})`;
+    query = query.not("token_id", "in", idsList);
+  }
+
+  const { error: deleteError } = await query;
+  if (deleteError) {
+    console.error("Erreur suppression anciens brouillons :", deleteError);
+  }
+}
+
 export default function ClientsManagement() {
   const [clients, setClients] = useState<ClientWithStats[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,14 +103,19 @@ export default function ClientsManagement() {
   const [showCode, setShowCode] = useState<{ [key: string]: boolean }>({});
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
-  // Formulaire client : nom + numéro WhatsApp
+  // On ajoute un champ discord dans le state du formulaire
   const [clientForm, setClientForm] = useState({
     name: "",
-    phone: "",
+    phone: "", // optionnel
+    discord: "", // optionnel
   });
 
   useEffect(() => {
-    loadClients();
+    // ① Nettoie d’abord les anciens brouillons non reliés à un token valide
+    cleanupDrafts().then(() => {
+      // ② Puis charge la liste des clients
+      loadClients();
+    });
   }, []);
 
   async function loadClients() {
@@ -144,7 +181,7 @@ export default function ClientsManagement() {
   }
 
   function resetClientForm() {
-    setClientForm({ name: "", phone: "" });
+    setClientForm({ name: "", phone: "", discord: "" });
     setEditingClient(null);
   }
 
@@ -154,6 +191,7 @@ export default function ClientsManagement() {
       setClientForm({
         name: client.name,
         phone: client.phone || "",
+        discord: client.discord || "",
       });
     } else {
       resetClientForm();
@@ -167,14 +205,18 @@ export default function ClientsManagement() {
   }
 
   async function saveClient() {
-    if (!clientForm.name.trim() || !clientForm.phone.trim()) return;
+    if (!clientForm.name.trim()) return;
 
     try {
-      const clientData = {
+      const clientData: any = {
         name: clientForm.name.trim(),
-        phone: clientForm.phone.trim(),
         updated_at: new Date().toISOString(),
       };
+      if (clientForm.phone.trim()) clientData.phone = clientForm.phone.trim();
+      else clientData.phone = null;
+      if (clientForm.discord.trim())
+        clientData.discord = clientForm.discord.trim();
+      else clientData.discord = null;
 
       if (editingClient) {
         const { error } = await supabase
@@ -215,23 +257,24 @@ export default function ClientsManagement() {
   }
 
   /**
-   * Génère un code et l'enregistre en base.
-   * Ne lance PAS WhatsApp ; on affiche juste une alerte de confirmation.
+   * 1) Génère un code + token en base.
+   * 2) Crée une attestation “draft” pour ce token, si pas déjà existant.
    */
   async function generateAndSendCode(client: ClientWithStats) {
     setGenerating(client.id);
+
     try {
       if (client.active_tokens_count > 0) {
         alert(
-          "Ce client a déjà un code d'accès actif. Veuillez attendre qu'il soit utilisé ou qu'il expire."
+          "Ce client a déjà un code d'accès actif. Attends qu'il soit utilisé ou expiré."
         );
         setGenerating(null);
         return;
       }
 
+      // 1. Générer le code + insérer dans tokens
       const code = generateAccessCode();
       const expiresAt = generateExpirationDate(7);
-
       const tokenData = {
         token: code,
         client_id: client.id,
@@ -240,18 +283,51 @@ export default function ClientsManagement() {
         expires_at: expiresAt,
       };
 
-      const { error: insertError } = await supabase
-        .from("tokens")
-        .insert(tokenData);
-      if (insertError) throw insertError;
+      const { data: insertedTokenData, error: insertTokenError } =
+        await supabase.from("tokens").insert(tokenData).select("id").single();
+      if (insertTokenError) throw insertTokenError;
+      const newTokenId = insertedTokenData!.id;
+
+      // 2. Créer une attestation “draft” pour ce nouveau token (si aucun brouillon n'existe)
+      const draftPayload = {
+        token_id: newTokenId,
+        client_id: client.id,
+        prestataire_nom: "",
+        prestataire_prenom: "",
+        prestataire_email: "",
+        client_nom: "TGZ Conciergerie",
+        client_adresse: "4 rue de sontay, 75116 Paris",
+        prestation_description: "À compléter par le client",
+        prestation_date_debut: new Date().toISOString().split("T")[0],
+        prestation_date_fin: new Date().toISOString().split("T")[0],
+        prestation_montant: 0,
+        status: "draft",
+        pdf_generated: false,
+      };
+
+      const { data: existingDraft } = await supabase
+        .from("attestations")
+        .select("id")
+        .eq("token_id", newTokenId)
+        .eq("status", "draft")
+        .single();
+
+      if (!existingDraft) {
+        const { error: insertDraftError } = await supabase
+          .from("attestations")
+          .insert(draftPayload);
+        if (insertDraftError) throw insertDraftError;
+      }
 
       alert(
-        `✅ Code généré pour ${client.name} : ${code}\nVous pouvez à présent cliquer sur "WhatsApp" pour l’envoyer.`
+        `✅ Code généré pour ${client.name} : ${code}\nClique sur "WhatsApp" pour l’envoyer.`
       );
-
       await loadClients();
     } catch (error) {
-      console.error("Erreur génération du code :", error);
+      console.error(
+        "Erreur génération du code ou création attestation :",
+        error
+      );
       alert("❌ Erreur lors de la génération du code.");
     } finally {
       setGenerating(null);
@@ -259,18 +335,21 @@ export default function ClientsManagement() {
   }
 
   /**
-   * Récupère le code actif pour le client, compose le lien WhatsApp
-   * et ouvre WhatsApp Web/app dans un nouvel onglet.
+   * Envoi du code actif via WhatsApp
    */
   function sendExistingCodeViaWhatsApp(client: ClientWithStats) {
+    if (!client.phone) {
+      alert("❌ Pas de numéro WhatsApp pour envoyer le code.");
+      return;
+    }
     if (!client.active_token) {
-      alert("Aucun code actif à envoyer. Générer un code d'abord.");
+      alert("Aucun code actif : génère un code d'abord.");
       return;
     }
     const codeActif = client.active_token.token;
     const phoneNumber = client.phone.replace(/[^0-9]/g, "");
     const message = encodeURIComponent(
-      `Bonjour ${client.name},\n\nVotre code d'accès (toujours valide) : *${codeActif}*.\nBonne journée !`
+      `Bonjour ${client.name},\n\nTon code d'accès (toujours valide) : *${codeActif}*.\nÀ bientôt !`
     );
     const waLink = `https://wa.me/${phoneNumber}?text=${message}`;
     window.open(waLink, "_blank");
@@ -293,9 +372,7 @@ export default function ClientsManagement() {
     }
   }
 
-  // -----------------------
-  // Historique des tokens
-  // -----------------------
+  // ── HISTORIQUE DES TOKENS ───────────────────────────────────────────────────
   async function openDeliveryDialog(client: ClientWithStats) {
     setSelectedClient(client);
     setIsDeliveryDialogOpen(true);
@@ -351,7 +428,6 @@ export default function ClientsManagement() {
   return (
     <Card className="bg-slate-800 border-slate-700">
       <CardHeader>
-        {/* Header responsive: empile sur mobile, ligne sur sm+ */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <CardTitle className="flex items-center text-white text-lg sm:text-xl">
@@ -381,11 +457,13 @@ export default function ClientsManagement() {
                     : "Créer un nouveau client"}
                 </DialogTitle>
                 <DialogDescription className="text-slate-400">
-                  Seul le numéro WhatsApp est requis pour un client.
+                  Le nom est obligatoire. Tu peux renseigner un numéro WhatsApp,
+                  un identifiant Discord ou laisser vide.
                 </DialogDescription>
               </DialogHeader>
 
               <div className="space-y-4 mt-4">
+                {/* Nom du client (toujours obligatoire) */}
                 <div>
                   <Label htmlFor="name" className="text-slate-300">
                     Nom du client *
@@ -404,9 +482,10 @@ export default function ClientsManagement() {
                   />
                 </div>
 
+                {/* Numéro WhatsApp (optionnel) */}
                 <div>
                   <Label htmlFor="phone" className="text-slate-300">
-                    Numéro WhatsApp *
+                    Numéro WhatsApp (optionnel)
                   </Label>
                   <Input
                     id="phone"
@@ -422,6 +501,25 @@ export default function ClientsManagement() {
                     className="bg-slate-700 border-slate-600 text-white w-full"
                   />
                 </div>
+
+                {/* Identifiant Discord (optionnel) */}
+                <div>
+                  <Label htmlFor="discord" className="text-slate-300">
+                    Identifiant Discord (optionnel)
+                  </Label>
+                  <Input
+                    id="discord"
+                    value={clientForm.discord}
+                    onChange={(e) =>
+                      setClientForm((prev) => ({
+                        ...prev,
+                        discord: e.target.value,
+                      }))
+                    }
+                    placeholder="User#1234"
+                    className="bg-slate-700 border-slate-600 text-white w-full"
+                  />
+                </div>
               </div>
 
               <DialogFooter className="mt-4 flex flex-col sm:flex-row justify-end gap-2">
@@ -434,9 +532,7 @@ export default function ClientsManagement() {
                 </Button>
                 <Button
                   onClick={saveClient}
-                  disabled={
-                    !clientForm.name.trim() || !clientForm.phone.trim()
-                  }
+                  disabled={!clientForm.name.trim()}
                   className="bg-blue-600 hover:bg-blue-700 w-full sm:w-auto"
                 >
                   {editingClient ? "Mettre à jour" : "Créer"}
@@ -448,16 +544,15 @@ export default function ClientsManagement() {
       </CardHeader>
 
       <CardContent className="p-0">
-        {/* Wrapper pour scroll horizontal sur mobile */}
         <div className="overflow-x-auto">
-          <Table className="min-w-[600px]">
+          <Table className="min-w-[700px]">
             <TableHeader>
               <TableRow className="border-slate-700">
                 <TableHead className="text-slate-300 whitespace-nowrap">
                   Client
                 </TableHead>
                 <TableHead className="text-slate-300 whitespace-nowrap">
-                  WhatsApp
+                  Contact
                 </TableHead>
                 <TableHead className="text-slate-300 whitespace-nowrap">
                   Code actif
@@ -481,9 +576,55 @@ export default function ClientsManagement() {
                     </div>
                   </TableCell>
 
-                  {/* Numéro WhatsApp */}
-                  <TableCell className="text-white whitespace-nowrap">
-                    {client.phone}
+                  {/* Contact: Phone + Discord (avec icônes + bouton copy) */}
+                  <TableCell className="text-white space-y-1 py-2">
+                    {client.phone && (
+                      <div className="flex items-center gap-1">
+                        <img
+                          src="/whatsapp.svg"
+                          alt="WhatsApp"
+                          className="h-4 w-4"
+                        />
+                        <span className="truncate">{client.phone}</span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => copyCode(client.phone!)}
+                          className="h-6 w-6 p-0 text-slate-400 hover:text-white"
+                        >
+                          {copiedCode === client.phone ? (
+                            <CheckCircle className="h-3 w-3 text-green-400" />
+                          ) : (
+                            <Copy className="h-3 w-3" />
+                          )}
+                        </Button>
+                      </div>
+                    )}
+                    {client.discord && (
+                      <div className="flex items-center gap-1">
+                        <img
+                          src="/discord.svg"
+                          alt="Discord"
+                          className="h-4 w-4"
+                        />
+                        <span className="truncate">{client.discord}</span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => copyCode(client.discord!)}
+                          className="h-6 w-6 p-0 text-slate-400 hover:text-white"
+                        >
+                          {copiedCode === client.discord ? (
+                            <CheckCircle className="h-3 w-3 text-green-400" />
+                          ) : (
+                            <Copy className="h-3 w-3" />
+                          )}
+                        </Button>
+                      </div>
+                    )}
+                    {!client.phone && !client.discord && (
+                      <span className="text-slate-400">-</span>
+                    )}
                   </TableCell>
 
                   {/* Code actif */}
@@ -530,7 +671,8 @@ export default function ClientsManagement() {
                         )}
                         {client.active_token.expires_at && (
                           <div className="text-xs text-slate-400">
-                            Expire le {formatDate(client.active_token.expires_at)}
+                            Expire le{" "}
+                            {formatDate(client.active_token.expires_at)}
                           </div>
                         )}
                       </div>
@@ -546,7 +688,7 @@ export default function ClientsManagement() {
 
                   {/* Statistiques attestations */}
                   <TableCell className="whitespace-nowrap">
-                    <div className="flex flex-col sm:flex-row gap-2">
+                    <div className="flex flex-col gap-1">
                       <Badge
                         variant="outline"
                         className="border-slate-600 text-slate-300 whitespace-nowrap"
@@ -567,32 +709,52 @@ export default function ClientsManagement() {
                   {/* Actions */}
                   <TableCell className="whitespace-nowrap">
                     <div className="flex flex-col sm:flex-row gap-2">
-                      {client.active_tokens_count === 0 ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => generateAndSendCode(client)}
-                          disabled={generating === client.id}
-                          className="border-green-600 text-green-400 hover:bg-green-900/20 whitespace-nowrap"
-                        >
-                          {generating === client.id ? (
-                            <Clock className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <>
-                              <Activity className="mr-1 h-3 w-3" />
-                              Générer code
-                            </>
-                          )}
-                        </Button>
+                      {client.phone || client.discord ? (
+                        client.active_tokens_count === 0 ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => generateAndSendCode(client)}
+                            disabled={generating === client.id}
+                            className="border-green-600 text-green-400 hover:bg-green-900/20 whitespace-nowrap"
+                          >
+                            {generating === client.id ? (
+                              <Clock className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <>
+                                <Activity className="mr-1 h-3 w-3" />
+                                Générer code
+                              </>
+                            )}
+                          </Button>
+                        ) : client.phone ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => sendExistingCodeViaWhatsApp(client)}
+                            className="border-blue-600 text-blue-400 hover:bg-blue-900/20 whitespace-nowrap"
+                          >
+                            <Activity className="mr-1 h-3 w-3" />
+                            WhatsApp
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled
+                            className="border-slate-600 text-slate-600 cursor-not-allowed whitespace-nowrap"
+                          >
+                            Code actif
+                          </Button>
+                        )
                       ) : (
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => sendExistingCodeViaWhatsApp(client)}
-                          className="border-blue-600 text-blue-400 hover:bg-blue-900/20 whitespace-nowrap"
+                          disabled
+                          className="border-slate-600 text-slate-600 cursor-not-allowed whitespace-nowrap"
                         >
-                          <Activity className="mr-1 h-3 w-3" />
-                          WhatsApp
+                          Générer code
                         </Button>
                       )}
 
@@ -636,7 +798,9 @@ export default function ClientsManagement() {
           <div className="text-center py-8 text-slate-400">
             <Users className="mx-auto h-12 w-12 text-slate-600 mb-4" />
             <p>Aucun client créé pour le moment</p>
-            <p className="text-sm">Cliquez sur “Nouveau client” pour commencer</p>
+            <p className="text-sm">
+              Clique sur “Nouveau client” pour commencer
+            </p>
           </div>
         )}
 

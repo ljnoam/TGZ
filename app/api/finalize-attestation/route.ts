@@ -1,4 +1,4 @@
-// api/finalize-attestation/routes.ts
+// app/api/finalize-attestation/route.ts
 
 import { type NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
@@ -28,68 +28,75 @@ export async function POST(request: NextRequest) {
       .getPublicUrl(fileName);
     const pdfUrl = urlData.publicUrl;
 
-    // 4. Construire l'objet complet pour le payload d'insertion/mise à jour
+    // 4. Construire le payload pour passer l'attestation en "completed"
     const fullPayload = {
-      token_id:             tokenId,
-      prestataire_nom:      attestationData.nom,
-      prestataire_prenom:   attestationData.prenom,
-      prestataire_adresse:  attestationData.adresse,
-      prestataire_email:    attestationData.email || "",
-      prestataire_telephone:attestationData.telephone || "",
-      prestataire_siret:    attestationData.siret || "",
-      client_nom:           attestationData.client_nom || "TGZ Conciergerie",
-      client_adresse:       attestationData.client_adresse || "4 rue de sontay, 75116 Paris",
+      token_id:              tokenId,
+      prestataire_nom:       attestationData.nom,
+      prestataire_prenom:    attestationData.prenom,
+      prestataire_adresse:   attestationData.adresse,
+      prestataire_email:     attestationData.email || "",
+      prestataire_telephone: attestationData.telephone || "",
+      prestataire_siret:     attestationData.siret || "",
+      client_nom:            attestationData.client_nom || "TGZ Conciergerie",
+      client_adresse:        attestationData.client_adresse || "4 rue de sontay, 75116 Paris",
       prestation_description:
         attestationData.type_prestation === "evenement_sportif"
           ? `Roland-Garros - ${attestationData.court} - ${attestationData.categorie} - ${attestationData.autres_precisions || ""}`
           : attestationData.autres_precisions || "",
-      prestation_date_debut: attestationData.date,
-      prestation_date_fin:   attestationData.date,
-      prestation_montant:    Number.parseFloat(attestationData.prix) || 0,
-      prestation_lieu:       attestationData.ville,
-      status:                "completed",
-      pdf_generated:         true,
-      pdf_url:               pdfUrl,
-      sent_at:               new Date().toISOString(),
-      updated_at:            new Date().toISOString(),
+      prestation_date_debut:  attestationData.date,
+      prestation_date_fin:    attestationData.date,
+      prestation_montant:     Number.parseFloat(attestationData.prix) || 0,
+      prestation_lieu:        attestationData.ville,
+      status:                 "completed",
+      pdf_generated:          true,
+      pdf_url:                pdfUrl,
+      sent_at:                new Date().toISOString(),
+      updated_at:             new Date().toISOString(),
     };
 
-    // 5. Tenter de récupérer la ligne existante (draft ou déjà finalisée)
-    const { data: existingData, error: findError } = await supabase
+    // 5. Rechercher **uniquement** le brouillon ("draft") pour ce token_id
+    const { data: existingDraft, error: findError } = await supabase
       .from("attestations")
       .select("id")
       .eq("token_id", tokenId)
+      .eq("status", "draft")
       .single();
 
+    // Si findError.code === "PGRST116", cela signifie "aucune ligne trouvée" → on continuera vers INSERT.
     if (findError && findError.code !== "PGRST116") {
-      // “PGRST116” signifie “No rows found” → ce n’est pas une vraie erreur, 
-      // on continue dans le bloc “else” pour faire un INSERT.
       throw findError;
     }
 
-    if (existingData) {
-      // 6a. Si on trouve déjà une attestation, on fait un UPDATE
+    if (existingDraft) {
+      // 6a. Si on trouve un brouillon, on fait UN SEUL UPDATE de cette ligne en "completed"
       const { error: updateError } = await supabase
         .from("attestations")
         .update(fullPayload)
-        .eq("id", existingData.id);
-
+        .eq("id", existingDraft.id);
       if (updateError) {
-        throw new Error(`Erreur lors de la mise à jour : ${updateError.message}`);
+        throw new Error(`Erreur mise à jour attestation : ${updateError.message}`);
       }
     } else {
-      // 6b. Sinon, on l’insère pour la première fois
+      // 6b. Si on ne trouve aucun brouillon (c’est un cas théorique, 
+      //     mais on le gère quand même), on fait un INSERT direct en "completed"
       const { data: insertData, error: insertError } = await supabase
         .from("attestations")
         .insert(fullPayload)
         .select("id");
-
       if (insertError) {
-        throw new Error(`Erreur lors de l’insertion : ${insertError.message}`);
+        throw new Error(`Erreur insertion attestation : ${insertError.message}`);
       }
     }
 
-    // 7. Marquer le token comme utilisé
+    // 7. (Optionnel) Nettoyage : supprimer **toute autre** attestation "draft" du même token_id 
+    //    (au cas où il y en aurait eu plusieurs par mégarde, même si la logique devrait éviter ça).
+    await supabase
+      .from("attestations")
+      .delete()
+      .eq("token_id", tokenId)
+      .eq("status", "draft");
+
+    // 8. Marquer le token comme utilisé
     const { error: tokenError } = await supabase
       .from("tokens")
       .update({
@@ -97,12 +104,10 @@ export async function POST(request: NextRequest) {
         used_at: new Date().toISOString(),
       })
       .eq("id", tokenId);
-
     if (tokenError) {
-      throw new Error(`Erreur lors de la mise à jour du token: ${tokenError.message}`);
+      throw new Error(`Erreur mise à jour token : ${tokenError.message}`);
     }
 
-    // 8. Logs pour vérification (facultatif)
     console.log("✅ Attestation finalisée pour tokenId:", tokenId);
     console.log("📄 PDF accessible à :", pdfUrl);
 

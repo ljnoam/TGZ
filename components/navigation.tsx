@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Building2, Settings } from "lucide-react"
+import { Building2 } from "lucide-react"
 
 export default function Navigation() {
   const pathname = usePathname()
@@ -22,17 +22,6 @@ export default function Navigation() {
               <Building2 className="h-6 w-6 mr-2" />
               <span className="text-lg font-semibold">TGZ Conciergerie</span>
             </Link>
-          </div>
-
-          <div className="flex items-center space-x-4">
-            {pathname !== "/admin" && (
-              <Link href="/admin">
-                <Button variant="ghost" className="text-slate-300 hover:text-white hover:bg-slate-700">
-                  <Settings className="mr-2 h-4 w-4" />
-                  Administration
-                </Button>
-              </Link>
-            )}
           </div>
         </div>
       </div>

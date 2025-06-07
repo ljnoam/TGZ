@@ -33,12 +33,12 @@ import {
   Calendar,
   Euro,
   Filter,
-  X,
+  X as XIcon,
   Building2,
 } from "lucide-react";
+import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { checkAdminAuth, logoutAdmin } from "@/lib/admin-auth";
-// On importe la page de login, qui ne prend plus de prop
 import AdminLoginPage from "./login/page";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -87,8 +87,8 @@ export default function AdminPage() {
   });
   const [showFilters, setShowFilters] = useState(false);
   const [invoiceToggling, setInvoiceToggling] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // Dès le premier rendu, on check si le cookie admin_logged_in existe
   useEffect(() => {
     const logged = checkAdminAuth();
     setIsAuthenticated(logged);
@@ -100,11 +100,6 @@ export default function AdminPage() {
     setIsAuthenticated(false);
   };
 
-  /**
-   * 1) On charge le nombre total de clients
-   * 2) On compte les attestations pdf_generated = true  → “complétées”
-   * 3) On compte les attestations pdf_generated = false → “en attente”
-   */
   const loadStats = async () => {
     try {
       const { count: clientsCount } = await supabase
@@ -132,13 +127,6 @@ export default function AdminPage() {
     }
   };
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      loadStats();
-      loadAttestations();
-    }
-  }, [isAuthenticated]);
-
   const loadAttestations = async () => {
     try {
       const { data, error } = await supabase
@@ -158,6 +146,13 @@ export default function AdminPage() {
     }
   };
 
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadStats();
+      loadAttestations();
+    }
+  }, [isAuthenticated]);
+
   const resetFilters = () => {
     setFilters({
       search: "",
@@ -169,53 +164,37 @@ export default function AdminPage() {
     });
   };
 
-  const filteredAttestations = attestations.filter((attestation) => {
-    if (attestationTab === "completed" && !attestation.pdf_generated) {
-      return false;
-    }
-    if (attestationTab === "pending" && attestation.pdf_generated) {
-      return false;
-    }
+  const filteredAttestations = attestations.filter((att) => {
+    if (attestationTab === "completed" && !att.pdf_generated) return false;
+    if (attestationTab === "pending" && att.pdf_generated) return false;
     if (
       filters.search &&
-      !`${attestation.prestataire_nom} ${attestation.prestataire_prenom}`
+      !`${att.prestataire_nom} ${att.prestataire_prenom}`
         .toLowerCase()
         .includes(filters.search.toLowerCase())
-    ) {
-      return false;
-    }
+    ) return false;
     if (
       filters.dateStart &&
-      new Date(attestation.prestation_date_debut) < new Date(filters.dateStart)
-    ) {
-      return false;
-    }
+      new Date(att.prestation_date_debut) < new Date(filters.dateStart)
+    ) return false;
     if (
       filters.dateEnd &&
-      new Date(attestation.prestation_date_debut) > new Date(filters.dateEnd)
-    ) {
-      return false;
-    }
+      new Date(att.prestation_date_debut) > new Date(filters.dateEnd)
+    ) return false;
     if (
       filters.minAmount &&
-      attestation.prestation_montant < Number(filters.minAmount)
-    ) {
-      return false;
-    }
+      att.prestation_montant < Number(filters.minAmount)
+    ) return false;
     if (
       filters.maxAmount &&
-      attestation.prestation_montant > Number(filters.maxAmount)
-    ) {
-      return false;
-    }
+      att.prestation_montant > Number(filters.maxAmount)
+    ) return false;
     if (
       filters.eventType &&
-      !attestation.prestation_description
+      !att.prestation_description
         .toLowerCase()
         .includes(filters.eventType.toLowerCase())
-    ) {
-      return false;
-    }
+    ) return false;
     return true;
   });
 
@@ -227,26 +206,47 @@ export default function AdminPage() {
     }
   };
 
-  const getEventType = (description: string) => {
-    if (description.toLowerCase().includes("roland-garros")) {
-      return "Roland-Garros";
-    }
-    return "Autre";
-  };
+  const getEventType = (desc: string) =>
+    desc.toLowerCase().includes("roland-garros") ? "Roland-Garros" : "Autre";
 
-  const toggleInvoiceProcessed = async (attId: string, newValue: boolean) => {
-    setInvoiceToggling(attId);
+  const toggleInvoiceProcessed = async (id: string, newValue: boolean) => {
+    setInvoiceToggling(id);
     try {
       const { error } = await supabase
         .from("attestations")
         .update({ invoice_processed: newValue })
-        .eq("id", attId);
+        .eq("id", id);
       if (error) throw error;
       await loadAttestations();
     } catch (err) {
       console.error("Erreur mise à jour invoice_processed:", err);
     } finally {
       setInvoiceToggling(null);
+    }
+  };
+
+  const deleteAttestation = async (id: string) => {
+    if (!window.confirm("🚨 Es-tu sûr·e de vouloir supprimer cette facture ?")) return;
+    if (
+      !window.confirm(
+        "Cette action est IRRÉVERSIBLE. Veux-tu vraiment supprimer la facture ?"
+      )
+    )
+      return;
+
+    setDeletingId(id);
+    try {
+      const { error } = await supabase
+        .from("attestations")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+      await loadAttestations();
+    } catch (err) {
+      console.error("Erreur suppression :", err);
+      alert("❌ Impossible de supprimer la facture. Vérifie la console.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -261,12 +261,10 @@ export default function AdminPage() {
     );
   }
 
-  // Si l’admin n’est pas authentifié, on affiche la page de login
   if (!isAuthenticated) {
     return <AdminLoginPage />;
   }
 
-  // Sinon, on affiche le dashboard complet
   return (
     <div className="min-h-screen bg-slate-900 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -289,10 +287,10 @@ export default function AdminPage() {
           </Button>
         </div>
 
-        {/* Statistiques */}
+        {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 mb-8">
           <Card className="bg-slate-800 border-slate-700">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardHeader className="flex justify-between pb-2">
               <CardTitle className="text-sm font-medium text-slate-300">
                 Total clients
               </CardTitle>
@@ -303,7 +301,7 @@ export default function AdminPage() {
             </CardContent>
           </Card>
           <Card className="bg-slate-800 border-slate-700">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardHeader className="flex justify-between pb-2">
               <CardTitle className="text-sm font-medium text-slate-300">
                 Attestations complétées
               </CardTitle>
@@ -314,7 +312,7 @@ export default function AdminPage() {
             </CardContent>
           </Card>
           <Card className="bg-slate-800 border-slate-700">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardHeader className="flex justify-between pb-2">
               <CardTitle className="text-sm font-medium text-slate-300">
                 En attente
               </CardTitle>
@@ -325,7 +323,7 @@ export default function AdminPage() {
             </CardContent>
           </Card>
           <Card className="bg-slate-800 border-slate-700">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardHeader className="flex justify-between pb-2">
               <CardTitle className="text-sm font-medium text-slate-300">
                 Total attestations
               </CardTitle>
@@ -337,7 +335,7 @@ export default function AdminPage() {
           </Card>
         </div>
 
-        {/* Onglets principaux */}
+        {/* Main Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-8">
           <TabsList className="flex space-x-2 overflow-x-auto bg-slate-800 border-slate-700 rounded-lg px-1">
             <TabsTrigger
@@ -361,17 +359,12 @@ export default function AdminPage() {
           </TabsList>
           <div className="h-1" />
 
-          {/* Contenu onglet Clients */}
           <TabsContent value="tokens">
             <ClientsManagement />
           </TabsContent>
-
-          {/* Contenu onglet Événements */}
           <TabsContent value="events">
             <EventsManagement />
           </TabsContent>
-
-          {/* Contenu onglet Attestations */}
           <TabsContent value="attestations">
             <Tabs
               value={attestationTab}
@@ -396,7 +389,7 @@ export default function AdminPage() {
               </TabsList>
             </Tabs>
 
-            {/* Filtres */}
+            {/* Filters */}
             <Card className="mb-6 bg-slate-800 border-slate-700">
               <CardHeader className="pb-3">
                 <div className="flex flex-col sm:flex-row justify-between items-center">
@@ -417,28 +410,26 @@ export default function AdminPage() {
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col sm:flex-row gap-4 mb-4">
-                  <div className="flex-1">
-                    <Input
-                      placeholder="Rechercher par nom..."
-                      value={filters.search}
-                      onChange={(e) =>
-                        setFilters({ ...filters, search: e.target.value })
-                      }
-                      className="w-full bg-slate-700 border-slate-600 text-white placeholder-slate-400"
-                    />
-                  </div>
+                  <Input
+                    placeholder="Rechercher par nom..."
+                    value={filters.search}
+                    onChange={(e) =>
+                      setFilters({ ...filters, search: e.target.value })
+                    }
+                    className="flex-1 bg-slate-700 border-slate-600 text-white placeholder-slate-400"
+                  />
                   <Button
                     variant="outline"
                     onClick={resetFilters}
                     className="whitespace-nowrap border-slate-600 text-slate-300 hover:bg-slate-700"
                   >
-                    <X className="mr-1 h-4 w-4" />
+                    <XIcon className="mr-1 h-4 w-4" />
                     Réinitialiser
                   </Button>
                 </div>
 
                 {showFilters && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
                       <Label className="text-slate-300 flex items-center">
                         <Calendar className="inline-block mr-1 h-4 w-4" /> Date début
@@ -496,7 +487,7 @@ export default function AdminPage() {
               </CardContent>
             </Card>
 
-            {/* Liste des attestations */}
+            {/* Attestations Table */}
             <Card className="bg-slate-800 border-slate-700">
               <CardHeader>
                 <CardTitle className="flex items-center text-white">
@@ -514,131 +505,85 @@ export default function AdminPage() {
                   <Table>
                     <TableHeader>
                       <TableRow className="border-slate-700">
-                        <TableHead className="text-slate-300 whitespace-nowrap">
-                          Prestataire
-                        </TableHead>
-                        <TableHead className="text-slate-300 whitespace-nowrap">
-                          Date
-                        </TableHead>
-                        <TableHead className="text-slate-300 whitespace-nowrap">
-                          Montant
-                        </TableHead>
-                        <TableHead className="text-slate-300 whitespace-nowrap">
-                          Événement
-                        </TableHead>
-                        <TableHead className="text-slate-300 whitespace-nowrap">
-                          Statut
-                        </TableHead>
-                        <TableHead className="text-slate-300 whitespace-nowrap">
-                          Facture traitée
-                        </TableHead>
-                        <TableHead className="text-slate-300 whitespace-nowrap">
-                          Actions
-                        </TableHead>
+                        <TableHead className="text-slate-300">Prestataire</TableHead>
+                        <TableHead className="text-slate-300">Date</TableHead>
+                        <TableHead className="text-slate-300">Montant</TableHead>
+                        <TableHead className="text-slate-300">Événement</TableHead>
+                        <TableHead className="text-slate-300">Statut</TableHead>
+                        <TableHead className="text-slate-300">Facture traitée</TableHead>
+                        <TableHead className="text-slate-300">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredAttestations.map((attestation) => (
-                        <TableRow
-                          key={attestation.id}
-                          className="border-slate-700"
-                        >
-                          {/* Prestataire */}
-                          <TableCell className="text-white whitespace-nowrap">
+                      {filteredAttestations.map((att) => (
+                        <TableRow key={att.id} className="border-slate-700">
+                          <TableCell className="text-white">
                             <div>
                               <div className="font-medium">
-                                {attestation.prestataire_nom}{" "}
-                                {attestation.prestataire_prenom}
+                                {att.prestataire_nom} {att.prestataire_prenom}
                               </div>
                               <div className="text-sm text-slate-400">
-                                {attestation.prestataire_email}
+                                {att.prestataire_email}
                               </div>
                             </div>
                           </TableCell>
-
-                          {/* Date */}
-                          <TableCell className="text-slate-300 whitespace-nowrap">
-                            {formatDate(attestation.prestation_date_debut)}
+                          <TableCell className="text-slate-300">
+                            {formatDate(att.prestation_date_debut)}
                           </TableCell>
-
-                          {/* Montant */}
-                          <TableCell className="text-white whitespace-nowrap">
+                          <TableCell className="text-white">
                             <span className="font-mono">
-                              {attestation.prestation_montant.toFixed(2)} €
+                              {att.prestation_montant.toFixed(2)} €
                             </span>
                           </TableCell>
-
-                          {/* Événement */}
-                          <TableCell className="whitespace-nowrap">
+                          <TableCell>
                             <Badge
-                              variant="outline"
-                              className={
-                                getEventType(
-                                  attestation.prestation_description
-                                ) === "Roland-Garros"
-                                  ? "bg-orange-900/20 text-orange-400 border-orange-800"
-                                  : "border-slate-600 text-slate-300"
+                              variant={
+                                getEventType(att.prestation_description) === "Roland-Garros"
+                                  ? "destructive"
+                                  : "outline"
                               }
                             >
-                              {getEventType(
-                                attestation.prestation_description
-                              )}
+                              {getEventType(att.prestation_description)}
                             </Badge>
                           </TableCell>
-
-                          {/* Statut (pdf_generated) */}
-                          <TableCell className="whitespace-nowrap">
-                            {attestation.pdf_generated ? (
+                          <TableCell>
+                            {att.pdf_generated ? (
                               <Badge className="bg-green-900/20 text-green-400 border-green-800">
                                 <CheckCircle className="mr-1 h-3 w-3" />
                                 Complétée
                               </Badge>
                             ) : (
-                              <Badge
-                                variant="secondary"
-                                className="bg-orange-900/20 text-orange-400 border-orange-800"
-                              >
+                              <Badge className="bg-orange-900/20 text-orange-400 border-orange-800">
                                 <Clock className="mr-1 h-3 w-3" />
                                 En attente
                               </Badge>
                             )}
                           </TableCell>
-
-                          {/* Facture traitée (invoice_processed) */}
-                          <TableCell className="whitespace-nowrap">
-                            {attestation.invoice_processed ? (
+                          <TableCell>
+                            {att.invoice_processed ? (
                               <Badge
                                 className="bg-green-900/20 text-green-400 border-green-800 cursor-pointer"
                                 onClick={() =>
-                                  toggleInvoiceProcessed(
-                                    attestation.id,
-                                    false
-                                  )
+                                  toggleInvoiceProcessed(att.id, false)
                                 }
                               >
                                 ✓ Oui
                               </Badge>
                             ) : (
                               <Badge
-                                variant="outline"
                                 className="border-slate-600 text-slate-300 cursor-pointer"
                                 onClick={() =>
-                                  toggleInvoiceProcessed(
-                                    attestation.id,
-                                    true
-                                  )
+                                  toggleInvoiceProcessed(att.id, true)
                                 }
                               >
                                 Non
                               </Badge>
                             )}
                           </TableCell>
-
-                          {/* Actions */}
-                          <TableCell className="whitespace-nowrap">
-                            {attestation.pdf_url ? (
+                          <TableCell className="space-x-2">
+                            {att.pdf_url ? (
                               <a
-                                href={attestation.pdf_url}
+                                href={att.pdf_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
                               >
@@ -662,6 +607,15 @@ export default function AdminPage() {
                                 En attente
                               </Button>
                             )}
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => deleteAttestation(att.id)}
+                              disabled={deletingId === att.id}
+                            >
+                              <XIcon className="mr-1 h-3 w-3" />
+                              {deletingId === att.id ? "Suppression…" : "Supprimer"}
+                            </Button>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -674,9 +628,7 @@ export default function AdminPage() {
                     <FileText className="mx-auto h-12 w-12 text-slate-600 mb-4" />
                     <p>
                       Aucune attestation{" "}
-                      {attestationTab === "completed"
-                        ? "complétée"
-                        : "en attente"}{" "}
+                      {attestationTab === "completed" ? "complétée" : "en attente"}{" "}
                       trouvée
                     </p>
                     <p className="text-sm">

@@ -1,207 +1,202 @@
 import jsPDF from "jspdf";
 
+interface Lot {
+  eventDate: string;
+  court?: string;
+  categorie?: string;
+  tickets: string;
+}
+
 interface AttestationData {
   nom: string;
   prenom: string;
   adresse: string;
   type_prestation: string;
   evenement?: string;
-  court?: string;
-  categorie?: string;
+  lots: Lot[];
   autres_precisions?: string;
   prix: string;
   mode_paiement: string;
   rib?: string;
-  signature?: string;
+  signature?: string; // base64 PNG
   ville: string;
-  date: string;       // date de la prestation
-  eventDate: string;  // date de l'événement
-  tickets: string;    // nombre de places achetées
+  date: string; // date de la prestation
 }
 
 export function generateAttestationPDF(data: AttestationData): jsPDF {
-  const doc = new jsPDF();
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 40;
+  const lineH = 14;
+  let y = margin;
 
-  // Page dimensions & margins
-  const pageWidth = doc.internal.pageSize.width;
-  const pageHeight = doc.internal.pageSize.height;
-  const margin = 20;
-  let y = 30;
+  // Espace réservé en bas pour cadres de signature + footer
+  const reservedBottom = 160;
+
+  // Saut de page automatique
+  function ensureSpace(height: number) {
+    if (y + height > pageH - reservedBottom) {
+      doc.addPage();
+      y = margin;
+      renderHeader();
+      y += 30;
+    }
+  }
 
   // ─── HEADER ───────────────────────────────────────────────────────────────────
-  doc.setFontSize(20);
-  doc.setFont("helvetica", "bold");
-  doc.text("ATTESTATION DE PRESTATION DE SERVICE", pageWidth / 2, y, {
-    align: "center",
-  });
-
-  y += 12;
-  doc.setFontSize(12);
-  doc.setFont("helvetica", "normal");
-  doc.text(
-    `Établie le ${new Date().toLocaleDateString("fr-FR")}`,
-    pageWidth / 2,
-    y,
-    { align: "center" }
-  );
-
-  y += 20;
+  function renderHeader() {
+    doc.setFont("helvetica", "bold").setFontSize(18);
+    doc.text("ATTESTATION DE PRESTATION DE SERVICE", pageW / 2, y, { align: "center" });
+    y += lineH;
+    doc.setFont("helvetica", "normal").setFontSize(10);
+    doc.text(`Établie le ${new Date().toLocaleDateString("fr-FR")}`, pageW / 2, y, {
+      align: "center",
+    });
+  }
+  renderHeader();
+  y += 30;
 
   // ─── PRESTATAIRE ─────────────────────────────────────────────────────────────
-  doc.setFontSize(14);
-  doc.setFont("helvetica", "bold");
+  doc.setFont("helvetica", "bold").setFontSize(12);
   doc.text("PRESTATAIRE", margin, y);
-
-  y += 8;
-  doc.setFontSize(11);
-  doc.setFont("helvetica", "normal");
-
+  y += lineH;
+  doc.setFont("helvetica", "normal").setFontSize(10);
   doc.text(`Nom : ${data.nom}`, margin, y);
-  y += 6;
+  y += lineH;
   doc.text(`Prénom : ${data.prenom}`, margin, y);
-  y += 6;
+  y += lineH;
   doc.text(`Adresse : ${data.adresse}`, margin, y);
-
-  y += 16;
+  y += 30;
 
   // ─── DÉTAILS DE LA PRESTATION ────────────────────────────────────────────────
-  doc.setFontSize(14);
-  doc.setFont("helvetica", "bold");
+  doc.setFont("helvetica", "bold").setFontSize(12);
   doc.text("DÉTAILS DE LA PRESTATION", margin, y);
-
-  y += 8;
-  doc.setFontSize(11);
-  doc.setFont("helvetica", "normal");
+  y += lineH * 1.2;
+  doc.setFont("helvetica", "normal").setFontSize(10);
 
   if (data.type_prestation === "evenement_sportif") {
     doc.text(`Événement : ${data.evenement || "N/A"}`, margin, y);
-    y += 6;
-    if (data.court) {
-      doc.text(`Court : ${data.court}`, margin, y);
-      y += 6;
-    }
-    if (data.categorie) {
-      doc.text(`Catégorie : ${data.categorie}`, margin, y);
-      y += 6;
-    }
+    y += lineH * 1.5;
   }
+
+  data.lots.forEach((lot, idx) => {
+    ensureSpace(lineH * 5);
+    doc.setFont("helvetica", "bold").setFontSize(11);
+    doc.text(`Lot ${idx + 1}`, margin, y);
+    y += lineH;
+    doc.setFont("helvetica", "normal").setFontSize(10);
+    doc.text(
+      `Date de l'événement : ${new Date(lot.eventDate).toLocaleDateString("fr-FR")}`,
+      margin,
+      y
+    );
+    y += lineH;
+    if (lot.court) {
+      doc.text(`Court : ${lot.court}`, margin, y);
+      y += lineH;
+    }
+    if (lot.categorie) {
+      doc.text(`Catégorie : ${lot.categorie}`, margin, y);
+      y += lineH;
+    }
+    doc.text(`Nombre de places : ${lot.tickets}`, margin, y);
+    y += lineH * 1.5;
+  });
 
   if (data.autres_precisions) {
-    doc.text(`Description : ${data.autres_precisions}`, margin, y);
-    y += 6;
+    ensureSpace(lineH * 2);
+    doc.setFont("helvetica", "italic").setFontSize(10);
+    doc.text(`Autres précisions : ${data.autres_precisions}`, margin, y);
+    y += lineH * 2;
+    doc.setFont("helvetica", "normal");
   }
 
-  // ─── NOUVEAU : Affiche la date de l’événement & nombre de places ─────────────
-  doc.text(`Date de l'événement : ${new Date(data.eventDate).toLocaleDateString("fr-FR")}`, margin, y);
-  y += 6;
-  doc.text(`Nombre de places achetées : ${data.tickets}`, margin, y);
-  y += 16;
-
+  ensureSpace(lineH * 2);
   doc.text(`Lieu : ${data.ville}`, margin, y);
-  y += 6;
-  doc.text(`Date de prestation : ${new Date(data.date).toLocaleDateString("fr-FR")}`, margin, y);
-
-  y += 16;
-
-  // ─── PAIEMENT ─────────────────────────────────────────────────────────────────
-  doc.setFontSize(14);
-  doc.setFont("helvetica", "bold");
-  doc.text("PAIEMENT", margin, y);
-
-  y += 8;
-  doc.setFontSize(11);
-  doc.setFont("helvetica", "normal");
-
-  doc.text(`Montant : ${data.prix} €`, margin, y);
-  y += 6;
+  y += lineH;
   doc.text(
-    `Mode de paiement : ${
-      data.mode_paiement === "especes" ? "Espèces" : "Virement"
-    }`,
+    `Date de la prestation : ${new Date(data.date).toLocaleDateString("fr-FR")}`,
     margin,
     y
   );
-  if (data.rib && data.mode_paiement === "virement") {
-    y += 6;
+  y += lineH * 2;
+
+  // ─── PAIEMENT ────────────────────────────────────────────────────────────────
+  ensureSpace(lineH * 4);
+  doc.setFont("helvetica", "bold").setFontSize(12);
+  doc.text("PAIEMENT", margin, y);
+  y += lineH;
+  doc.setFont("helvetica", "normal").setFontSize(10);
+  doc.text(`Montant : ${data.prix} €`, margin, y);
+  y += lineH;
+  doc.text(
+    `Mode de paiement : ${data.mode_paiement === "virement" ? "Virement" : "Espèces"}`,
+    margin,
+    y
+  );
+  if (data.mode_paiement === "virement" && data.rib) {
+    y += lineH;
     doc.text(`RIB : ${data.rib}`, margin, y);
   }
 
-  y += 20;
-
   // ─── FAIT À / LE ──────────────────────────────────────────────────────────────
-  doc.setFontSize(11);
-  doc.setFont("helvetica", "italic");
-  const faitAtext = `Fait à : ${data.ville}    Le : ${new Date(
-    data.date
-  ).toLocaleDateString("fr-FR")}`;
-  doc.text(faitAtext, margin, y);
+  y += lineH * 2;
+  doc.setFont("helvetica", "italic").setFontSize(10);
+  doc.text(
+    `Fait à : ${data.ville}    Le : ${new Date(data.date).toLocaleDateString("fr-FR")}`,
+    margin,
+    y
+  );
 
-  y += 20;
+  // ─── SIGNATURES (fixées en bas) ──────────────────────────────────────────────
+  const sigBlockW = 180;
+  const sigBlockH = 50;
+  const sigY = pageH - margin - sigBlockH - 60; // laisse de la place pour footer
 
-  // ─── SIGNATURES ──────────────────────────────────────────────────────────────
-  // Prestataire signature block (left side)
-  const sigBlockHeight = 40;
-  const sigBlockWidth = 60;
-  doc.setFontSize(12);
-  doc.setFont("helvetica", "bold");
-  doc.text("Signature du prestataire :", margin, y);
-
+  // === Signature Prestataire ===
+  const leftX = margin;
+  doc.setFont("helvetica", "bold").setFontSize(10);
+  doc.text("Signature du prestataire :", leftX, sigY - 12);
+  doc.setDrawColor(100);
+  doc.setLineWidth(0.4);
+  doc.rect(leftX, sigY, sigBlockW, sigBlockH);
   if (data.signature) {
     try {
-      doc.addImage(data.signature, "PNG", margin, y + 6, sigBlockWidth, sigBlockHeight);
-    } catch (e) {
-      console.error("Erreur ajout signature prestataire:", e);
+      const imgW = sigBlockW - 10;
+      const imgH = sigBlockH - 10;
+      doc.addImage(data.signature, "PNG", leftX + 5, sigY + 5, imgW, imgH);
+    } catch {
+      // ignore
     }
   }
-  // Draw a line under the signature area
-  doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(0.2);
-  doc.line(
-    margin,
-    y + sigBlockHeight + 8,
-    margin + sigBlockWidth,
-    y + sigBlockHeight + 8
-  );
 
-  // Organiser / Admin signature block (right side)
-  const adminX = pageWidth - margin - sigBlockWidth;
-  doc.setFontSize(12);
-  doc.setFont("helvetica", "bold");
-  doc.text("Signature de l'organisateur :", adminX, y, { align: "left" });
-
-  // Put organiser’s fixed signature text / block
-  const adminInfoY = y + 6;
-  doc.setFontSize(11);
-  doc.setFont("helvetica", "normal");
-  const adminLines = [
+  // === Signature Organisateur ===
+  const orgX = pageW - margin - sigBlockW;
+  const orgCenterX = orgX + sigBlockW / 2;
+  // Titre centré au-dessus
+  doc.setFont("helvetica", "bold").setFontSize(10);
+  doc.text("Signature de l'organisateur :", orgCenterX, sigY - 12, { align: "center" });
+  // cadre
+  doc.rect(orgX, sigY, sigBlockW, sigBlockH);
+  // contenu centré à l'intérieur
+  const lines = [
     "TGZ S.A.S",
     "contact@tgz.events",
-    "4 rue de sontay, 75016 Paris, France",
+    "4 rue de sontay, 75116 Paris, France",
   ];
-  adminLines.forEach((line, idx) => {
-    doc.text(line, adminX, adminInfoY + idx * 6, { align: "left" });
+  doc.setFont("helvetica", "normal").setFontSize(9);
+  lines.forEach((line, i) => {
+    doc.text(line, orgCenterX, sigY + 8 + i * lineH, { align: "center" });
   });
 
-  // Draw a line under the organiser block
-  doc.setDrawColor(0, 0, 0);
-  doc.setLineWidth(0.2);
-  doc.line(
-    adminX,
-    adminInfoY + adminLines.length * 6 + 4,
-    adminX + sigBlockWidth,
-    adminInfoY + adminLines.length * 6 + 4
-  );
-
-  y += sigBlockHeight + 20;
-
   // ─── FOOTER ───────────────────────────────────────────────────────────────────
-  const footerY = pageHeight - 20;
-  doc.setFontSize(10);
-  doc.setFont("helvetica", "normal");
+  doc.setFont("helvetica", "normal").setFontSize(9);
+  doc.setTextColor(120);
   doc.text(
     "TGZ S.A.S – contact@tgz.events – 4 rue de sontay, 75116 Paris, France",
-    pageWidth / 2,
-    footerY,
+    pageW / 2,
+    pageH - margin / 2,
     { align: "center" }
   );
 

@@ -348,9 +348,18 @@ export default function ClientsManagement() {
     }
     const codeActif = client.active_token.token;
     const phoneNumber = client.phone.replace(/[^0-9]/g, "");
-    const message = encodeURIComponent(
-      `Bonjour ${client.name},\n\nTon code d'accès (toujours valide) : *${codeActif}*.\nÀ bientôt !`
-    );
+    const attestationUrl = "https://tgz-mocha.vercel.app/";
+const message = encodeURIComponent(
+  `Bonjour ${client.name},
+
+Ton code d'accès (toujours valide) : *${codeActif}*.
+
+Génère ton attestation ici :
+${attestationUrl}
+
+À bientôt !`
+);
+
     const waLink = `https://wa.me/${phoneNumber}?text=${message}`;
     window.open(waLink, "_blank");
   }

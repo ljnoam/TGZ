@@ -65,7 +65,9 @@ export default function FormulairePage() {
   const [loading, setLoading] = useState(true);
   const [currentStep, setCurrentStep] = useState(1);
   const [saving, setSaving] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
   const [showPreview, setShowPreview] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
   const [pdfUrl, setPdfUrl] = useState("");
@@ -141,8 +143,10 @@ export default function FormulairePage() {
       // parse first lot
       const lot: Lot = {
         eventDate:
-          data.prestation_description?.match(/DateEvt:([0-9\-]+)/)?.[1] || today,
-        tickets: data.prestation_description?.match(/Tickets:([0-9]+)/)?.[1] || "",
+          data.prestation_description?.match(/DateEvt:([0-9\-]+)/)?.[1] ||
+          today,
+        tickets:
+          data.prestation_description?.match(/Tickets:([0-9]+)/)?.[1] || "",
         court: data.prestation_description?.split(" - ")[1]?.trim() || "",
         categorie: data.prestation_description?.split(" - ")[2]?.trim() || "",
       };
@@ -173,7 +177,10 @@ export default function FormulairePage() {
   const addLot = () =>
     setFormData((f) => ({
       ...f,
-      lots: [...f.lots, { eventDate: today, court: "", categorie: "", tickets: "" }],
+      lots: [
+        ...f.lots,
+        { eventDate: today, court: "", categorie: "", tickets: "" },
+      ],
     }));
   const removeLot = (i: number) =>
     setFormData((f) => ({
@@ -366,7 +373,7 @@ export default function FormulairePage() {
   const isStepValid = () => {
     switch (currentStep) {
       case 1:
-        return formData.nom && formData.prenom && formData.adresse;
+        return Boolean(formData.nom && formData.prenom && formData.adresse);
       case 2:
         if (!formData.type_prestation) return false;
         if (formData.type_prestation === "evenement_sportif") {
@@ -375,17 +382,18 @@ export default function FormulairePage() {
             (l) => l.eventDate && l.court && l.categorie && l.tickets
           );
         }
-        return true;
+        // Si c’est "autre", il faut une description non vide
+        return Boolean(formData.autres_precisions);
       case 3:
         return (
-          formData.prix &&
+          Boolean(formData.prix) &&
           formData.mode_paiement === "virement" &&
           Boolean(formData.rib)
         );
       case 4:
         return formData.signature !== undefined;
       case 5:
-        return formData.ville && formData.date;
+        return Boolean(formData.ville && formData.date);
       default:
         return false;
     }
@@ -400,7 +408,10 @@ export default function FormulairePage() {
               Votre identité
             </h2>
             <div>
-              <Label htmlFor="nom" className="text-lg font-medium text-slate-300">
+              <Label
+                htmlFor="nom"
+                className="text-lg font-medium text-slate-300"
+              >
                 Nom *
               </Label>
               <Input
@@ -413,7 +424,10 @@ export default function FormulairePage() {
               />
             </div>
             <div>
-              <Label htmlFor="prenom" className="text-lg font-medium text-slate-300">
+              <Label
+                htmlFor="prenom"
+                className="text-lg font-medium text-slate-300"
+              >
                 Prénom *
               </Label>
               <Input
@@ -465,7 +479,11 @@ export default function FormulairePage() {
                   </Label>
                 </div>
                 <div className="flex items-center space-x-3 p-4 border border-slate-600 rounded-lg hover:bg-slate-700 bg-slate-800">
-                  <RadioGroupItem value="autre" id="autre" className="w-5 h-5" />
+                  <RadioGroupItem
+                    value="autre"
+                    id="autre"
+                    className="w-5 h-5"
+                  />
                   <Label
                     htmlFor="autre"
                     className="text-lg cursor-pointer flex-1 text-white"
@@ -475,6 +493,27 @@ export default function FormulairePage() {
                 </div>
               </RadioGroup>
             </div>
+
+            {formData.type_prestation === "autre" && (
+              <div className="mt-6">
+                <Label
+                  htmlFor="autres_precisions"
+                  className="text-lg font-medium text-slate-300"
+                >
+                  Description de la prestation *
+                </Label>
+                <Textarea
+                  id="autres_precisions"
+                  value={formData.autres_precisions}
+                  onChange={(e) =>
+                    updateFormData("autres_precisions", e.target.value)
+                  }
+                  placeholder="Décrivez la prestation"
+                  className="text-lg py-4 mt-2 min-h-[100px] bg-slate-700 border-slate-600 text-white"
+                  required
+                />
+              </div>
+            )}
 
             {formData.type_prestation === "evenement_sportif" && (
               <>
@@ -491,7 +530,11 @@ export default function FormulairePage() {
                     </SelectTrigger>
                     <SelectContent className="bg-slate-700 border-slate-600">
                       {events.map((e) => (
-                        <SelectItem key={e.id} value={e.id} className="text-lg py-3 text-white">
+                        <SelectItem
+                          key={e.id}
+                          value={e.id}
+                          className="text-lg py-3 text-white"
+                        >
                           {e.name}
                         </SelectItem>
                       ))}
@@ -500,13 +543,18 @@ export default function FormulairePage() {
                 </div>
 
                 <div>
-                  <Label htmlFor="precisions" className="text-lg font-medium text-slate-300">
+                  <Label
+                    htmlFor="precisions"
+                    className="text-lg font-medium text-slate-300"
+                  >
                     Autres précisions
                   </Label>
                   <Textarea
                     id="precisions"
                     value={formData.autres_precisions}
-                    onChange={(e) => updateFormData("autres_precisions", e.target.value)}
+                    onChange={(e) =>
+                      updateFormData("autres_precisions", e.target.value)
+                    }
                     placeholder="Détails supplémentaires sur la prestation"
                     className="text-lg py-4 mt-2 min-h-[100px] bg-slate-700 border-slate-600 text-white"
                   />
@@ -595,7 +643,9 @@ export default function FormulairePage() {
                           </Label>
                           <Select
                             value={lot.categorie}
-                            onValueChange={(v) => updateLot(idx, "categorie", v)}
+                            onValueChange={(v) =>
+                              updateLot(idx, "categorie", v)
+                            }
                           >
                             <SelectTrigger className="text-lg py-4 mt-2 bg-slate-700 border-slate-600 text-white">
                               <SelectValue placeholder="Sélectionner une catégorie" />
@@ -650,7 +700,6 @@ export default function FormulairePage() {
                 </div>
               </>
             )}
-
           </div>
         );
 
@@ -661,7 +710,10 @@ export default function FormulairePage() {
               Paiement
             </h2>
             <div>
-              <Label htmlFor="prix" className="text-lg font-medium text-slate-300">
+              <Label
+                htmlFor="prix"
+                className="text-lg font-medium text-slate-300"
+              >
                 Prix (€) *
               </Label>
               <Input
@@ -685,7 +737,11 @@ export default function FormulairePage() {
                 className="mt-4 space-y-4"
               >
                 <div className="flex items-center space-x-3 p-4 border border-slate-600 rounded-lg hover:bg-slate-700 bg-slate-800">
-                  <RadioGroupItem value="virement" id="virement" className="w-5 h-5" />
+                  <RadioGroupItem
+                    value="virement"
+                    id="virement"
+                    className="w-5 h-5"
+                  />
                   <Label
                     htmlFor="virement"
                     className="text-lg cursor-pointer flex-1 text-white"
@@ -698,7 +754,10 @@ export default function FormulairePage() {
 
             {formData.mode_paiement === "virement" && (
               <div>
-                <Label htmlFor="rib" className="text-lg font-medium text-slate-300">
+                <Label
+                  htmlFor="rib"
+                  className="text-lg font-medium text-slate-300"
+                >
                   RIB *
                 </Label>
                 <Input
@@ -753,7 +812,10 @@ export default function FormulairePage() {
               Lieu et date
             </h2>
             <div>
-              <Label htmlFor="ville" className="text-lg font-medium text-slate-300">
+              <Label
+                htmlFor="ville"
+                className="text-lg font-medium text-slate-300"
+              >
                 Ville *
               </Label>
               <Input
@@ -766,7 +828,10 @@ export default function FormulairePage() {
               />
             </div>
             <div>
-              <Label htmlFor="date" className="text-lg font-medium text-slate-300">
+              <Label
+                htmlFor="date"
+                className="text-lg font-medium text-slate-300"
+              >
                 Date de la prestation *
               </Label>
               <Input
